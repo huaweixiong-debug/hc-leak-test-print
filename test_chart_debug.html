@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chart Debug</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background: #1a1a2e; color: white; padding: 20px; }
+        .chart-container { width: 400px; height: 200px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h2>Chart.js Test</h2>
+    <div class="chart-container">
+        <canvas id="testChart"></canvas>
+    </div>
+    <button onclick="addData()">Add Data</button>
+    <button onclick="clearData()">Clear</button>
+    <div id="log"></div>
+
+    <script>
+        const ctx = document.getElementById('testChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Test',
+                    data: [],
+                    borderColor: 'rgba(96, 165, 250, 1)',
+                    borderWidth: 2,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: { display: true },
+                    y: { display: true }
+                }
+            }
+        });
+
+        let counter = 0;
+        function addData() {
+            counter++;
+            chart.data.labels.push(counter + 's');
+            chart.data.datasets[0].data.push(Math.random() * 100);
+            chart.update('none');
+            document.getElementById('log').innerHTML += '<p>Added point ' + counter + '</p>';
+        }
+
+        function clearData() {
+            chart.data.labels = [];
+            chart.data.datasets[0].data = [];
+            chart.update('none');
+            counter = 0;
+            document.getElementById('log').innerHTML = '';
+        }
+
+        // Auto add data every second
+        setInterval(addData, 1000);
+    </script>
+</body>
+</html>

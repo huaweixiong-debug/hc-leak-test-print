@@ -1,0 +1,27 @@
+[
+    {
+        "id": 1,
+        "model": "1234",
+        "program": 1
+    },
+    {
+        "id": 2,
+        "model": "Model B",
+        "program": 2
+    },
+    {
+        "id": 3,
+        "model": "Model C",
+        "program": 3
+    },
+    {
+        "id": 4,
+        "model": "Model D",
+        "program": 4
+    },
+    {
+        "id": 5,
+        "model": "EV98",
+        "program": 6
+    }
+]
