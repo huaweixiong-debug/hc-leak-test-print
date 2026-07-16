@@ -1,9 +1,10 @@
 @echo off
 setlocal
 
-set "SOURCE_VBS=%~dp0start_ateq_webui_silent.vbs"
+set "SOURCE_VBS=%~dp0open_ateq_webui_silent.vbs"
 set "STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "TARGET_LNK=%STARTUP_DIR%\start_ateq_webui.lnk"
+set "OLD_OPEN_VBS=%STARTUP_DIR%\open_ateq_webui_silent.vbs"
 set "OLD_VBS=%STARTUP_DIR%\start_ateq_webui_silent.vbs"
 set "OLD_BAT=%STARTUP_DIR%\start_ateq_webui.bat"
 set "OLD_TEST_LNK=%STARTUP_DIR%\start_webui_silent - 快捷方式.lnk"
@@ -28,9 +29,10 @@ if errorlevel 1 (
 )
 
 if exist "%OLD_VBS%" del /F /Q "%OLD_VBS%" >nul 2>nul
+if exist "%OLD_OPEN_VBS%" del /F /Q "%OLD_OPEN_VBS%" >nul 2>nul
 if exist "%OLD_BAT%" del /F /Q "%OLD_BAT%" >nul 2>nul
 if exist "%OLD_TEST_LNK%" del /F /Q "%OLD_TEST_LNK%" >nul 2>nul
 
-echo [OK] Installed silent startup to Windows Startup:
+echo [OK] Installed silent startup with auto-open to Windows Startup:
 echo %TARGET_LNK%
 exit /b 0
