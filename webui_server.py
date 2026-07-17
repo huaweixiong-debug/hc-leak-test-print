@@ -820,8 +820,7 @@ HTML_TEMPLATE = '''
                 </div>
 
                 <div id="plc-m26-status-panel" class="bg-gray-700/30 rounded-lg p-3 text-xs">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-gray-400">M26.0 旧IO启动（已停用）</span>
+                    <div class="flex items-center justify-end mb-2">
                         <span id="plc-connection-status" class="px-2 py-0.5 rounded bg-gray-600 text-gray-200">读取中</span>
                     </div>
                     <div class="flex items-center gap-2">
@@ -4434,7 +4433,7 @@ HTML_TEMPLATE = '''
                 warning: 'bg-yellow-600'
             };
             
-            notification.className = `fixed top-20 right-4 ${colors[type]} text-white px-4 py-2 rounded-lg shadow-lg z-50 transition-opacity duration-300`;
+            notification.className = `fixed top-14 right-4 ${colors[type]} text-white px-4 py-2 rounded-lg shadow-lg z-50 transition-opacity duration-300`;
             notification.textContent = message;
             document.body.appendChild(notification);
             
