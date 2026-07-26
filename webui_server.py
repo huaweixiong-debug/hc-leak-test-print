@@ -2294,6 +2294,7 @@ HTML_TEMPLATE = '''
         
         // 当前选中的产品配置
         let currentProductConfig = null;
+        let suppressProductAteqSyncOnce = false;
         const LOGIN_USER_STORAGE_KEY = 'ateq_logged_in_user';
         const OPERATOR_ACCOUNTS_STORAGE_KEY = 'ateq_operator_accounts';
         let loggedInUser = '';
@@ -2964,6 +2965,8 @@ HTML_TEMPLATE = '''
         // 产品选择变化事件
         document.getElementById('product-selector').addEventListener('change', function() {
             const selectedIndex = this.value;
+            const suppressAteqSync = suppressProductAteqSyncOnce;
+            suppressProductAteqSyncOnce = false;
             const configDiv = document.getElementById('program-config');
             const statusContainer = document.getElementById('test-status-container');
 
@@ -3000,13 +3003,13 @@ HTML_TEMPLATE = '''
 
             // 立刻写入程序号1到ATEQ仪器
             const prog1 = parseInt(currentProductConfig.program1);
-            if (prog1 > 0) {
+            if (!suppressAteqSync && prog1 > 0) {
                 fetch('/api/select_program/' + prog1, { method: 'POST' })
                     .then(r => r.json())
                     .then(r => { if (!r.success) console.warn('写入程序号1失败:', r.message); })
                     .catch(e => console.error('写入程序号1异常:', e))
                     .finally(() => loadTestParams(prog1));
-            } else {
+            } else if (!suppressAteqSync) {
                 loadTestParams();
             }
 
@@ -5094,6 +5097,10 @@ HTML_TEMPLATE = '''
             });
             
             localStorage.setItem('ateq_products', JSON.stringify(products));
+            // Saving edits only refreshes the UI. Device synchronization is
+            // deferred until an explicit product selection or test start.
+            suppressProductAteqSyncOnce =
+                localStorage.getItem('selected_product_index') !== null;
             loadProductSelector();
             alert('设置已保存！共 ' + products.length + ' 个产品');
         });
