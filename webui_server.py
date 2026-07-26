@@ -5004,6 +5004,7 @@ HTML_TEMPLATE = '''
                 <td class="py-2 px-3 border border-gray-600">
                     <div class="flex gap-1">
                         <input type="text" class="label-template-input flex-1 min-w-[180px] px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white text-sm" value="${escapeAttr(labelTemplate)}" placeholder="可选，选择*.btw文件">
+                        <input type="file" class="label-template-file" accept=".btw" style="display:none">
                         <button type="button" class="btn-select-template px-2 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 text-white rounded text-xs whitespace-nowrap">选择</button>
                     </div>
                 </td>
@@ -5021,22 +5022,37 @@ HTML_TEMPLATE = '''
 
             const templateButton = tr.querySelector('.btn-select-template');
             const templatePathInput = tr.querySelector('.label-template-input');
+            const templateFileInput = tr.querySelector('.label-template-file');
 
-            async function selectTargetLabelTemplate() {
+            function openLabelTemplatePicker() {
+                templateFileInput.value = '';
+                templateFileInput.click();
+            }
+
+            async function uploadLabelTemplate() {
+                const file = templateFileInput.files && templateFileInput.files[0];
+                if (!file) return;
+                if (!file.name.toLowerCase().endsWith('.btw')) {
+                    showNotification('请选择 .btw 标签模板文件', 'error');
+                    return;
+                }
+
                 const oldText = templateButton.textContent;
                 templateButton.disabled = true;
-                templateButton.textContent = '选择中...';
+                templateButton.textContent = '上传中...';
                 templatePathInput.disabled = true;
                 try {
-                    const response = await fetch('/api/select_label_template', { method: 'POST' });
+                    const response = await fetch('/api/upload_label_template?filename=' + encodeURIComponent(file.name), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/octet-stream' },
+                        body: file
+                    });
                     const result = await response.json();
                     if (result.success && result.path) {
                         templatePathInput.value = result.path;
                         showNotification('已选择标签模板', 'success');
-                    } else if (!result.cancelled) {
-                        showNotification('选择标签模板失败: ' + (result.message || ''), 'error');
                     } else {
-                        showNotification('已取消选择标签模板', 'warning');
+                        showNotification('选择标签模板失败: ' + (result.message || ''), 'error');
                     }
                 } catch (e) {
                     showNotification('选择标签模板异常: ' + e.message, 'error');
@@ -5047,8 +5063,9 @@ HTML_TEMPLATE = '''
                 }
             }
 
-            templateButton.addEventListener('click', selectTargetLabelTemplate);
-            templatePathInput.addEventListener('dblclick', selectTargetLabelTemplate);
+            templateButton.addEventListener('click', openLabelTemplatePicker);
+            templatePathInput.addEventListener('dblclick', openLabelTemplatePicker);
+            templateFileInput.addEventListener('change', uploadLabelTemplate);
             
             // 绑定删除按钮事件
             tr.querySelector('.delete-product').addEventListener('click', function() {
