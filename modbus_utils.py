@@ -22,12 +22,21 @@ BYTESIZE = int(os.environ.get('ATEQ_BYTESIZE', '8'))
 PARITY = os.environ.get('ATEQ_PARITY', 'E')
 STOPBITS = int(os.environ.get('ATEQ_STOPBITS', '1'))
 TRANSPORT = os.environ.get('ATEQ_MODBUS_TRANSPORT', 'serial').lower()
+REALTIME_ADDRESS = 0x30
+REALTIME_REGISTER_COUNT = 13
+REALTIME_CACHE_SECONDS = float(os.environ.get('ATEQ_REALTIME_CACHE_SECONDS', '0.25'))
+SERIAL_ERROR_COOLDOWN_SECONDS = float(
+    os.environ.get('ATEQ_SERIAL_ERROR_COOLDOWN_SECONDS', '1.0')
+)
 
 # 全局互斥锁，确保Modbus操作的线程安全
 # 所有读取和写入操作必须通过这个锁进行互斥
 modbus_lock = threading.Lock()
 _serial_connection = None
 _last_serial_issue_at = 0.0
+_serial_cooldown_until = 0.0
+_realtime_cache_response = None
+_realtime_cache_at = 0.0
 
 def modbus_crc(data_hex):
     """计算 Modbus RTU CRC16 校验码"""
@@ -45,9 +54,15 @@ def modbus_crc(data_hex):
 def send_raw(data_hex, timeout=3):
     """发送原始十六进制数据并返回响应（线程安全）"""
     with modbus_lock:
-        if TRANSPORT == 'tcp':
-            return _send_raw_tcp(data_hex, timeout)
-        return _send_raw_serial(data_hex, timeout)
+        try:
+            if TRANSPORT == 'tcp':
+                return _send_raw_tcp(data_hex, timeout)
+            return _send_raw_serial(data_hex, timeout)
+        except Exception as exc:
+            # Device-driver errors must not escape into the HTTP/API callers.
+            _log_serial_issue(f"{SERIAL_PORT} unexpected error: {exc}")
+            _close_serial_connection()
+            return None
 
 
 def _send_raw_tcp(data_hex, timeout=3):
@@ -68,6 +83,11 @@ def _send_raw_tcp(data_hex, timeout=3):
 
 def _send_raw_serial(data_hex, timeout=3):
     """按配置的串口参数发送 Modbus RTU 帧。"""
+    global _serial_cooldown_until
+
+    if time.monotonic() < _serial_cooldown_until:
+        return None
+
     data = bytes.fromhex(data_hex)
     expected_length = _expected_response_length(data)
     attempts = 2 if len(data) > 1 and data[1] in (0x01, 0x02, 0x03, 0x04) else 1
@@ -86,6 +106,7 @@ def _send_raw_serial(data_hex, timeout=3):
             response = ser.read(expected_length)
 
             if response and _is_valid_response(data, response):
+                _serial_cooldown_until = 0.0
                 return response.hex().upper()
 
             if response:
@@ -97,6 +118,13 @@ def _send_raw_serial(data_hex, timeout=3):
         except Exception as exc:
             _log_serial_issue(f"{SERIAL_PORT} error: {exc}")
             _close_serial_connection()
+            if getattr(exc, "winerror", None) == 31:
+                # ERROR_GEN_FAILURE means this handle can no longer perform I/O.
+                # Do not hammer the legacy driver with an immediate retry.
+                _serial_cooldown_until = (
+                    time.monotonic() + SERIAL_ERROR_COOLDOWN_SECONDS
+                )
+                break
 
         if attempt + 1 < attempts:
             time.sleep(0.1)
@@ -200,6 +228,32 @@ def _register_value(value):
 
 def read_holding_registers(address, count):
     """读取保持寄存器（线程安全）"""
+    global _realtime_cache_at, _realtime_cache_response
+
+    if address == REALTIME_ADDRESS and count == REALTIME_REGISTER_COUNT:
+        with modbus_lock:
+            now = time.monotonic()
+            if (
+                _realtime_cache_response is not None
+                and now - _realtime_cache_at < REALTIME_CACHE_SECONDS
+            ):
+                return _realtime_cache_response
+
+            cmd = f"{STATION_ID:02X}03{address:04X}{count:04X}"
+            try:
+                if TRANSPORT == 'tcp':
+                    response = _send_raw_tcp(cmd + modbus_crc(cmd))
+                else:
+                    response = _send_raw_serial(cmd + modbus_crc(cmd))
+            except Exception as exc:
+                _log_serial_issue(f"{SERIAL_PORT} realtime read error: {exc}")
+                _close_serial_connection()
+                return None
+            if response:
+                _realtime_cache_response = response
+                _realtime_cache_at = time.monotonic()
+            return response
+
     cmd = f"{STATION_ID:02X}03{address:04X}{count:04X}"
     return send_raw(cmd + modbus_crc(cmd))
 
