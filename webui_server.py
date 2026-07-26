@@ -5,8 +5,20 @@ import subprocess
 import os
 import logging
 import re
+import sys
 import threading
 from pathlib import Path
+
+# The ATEQ unit table contains characters such as the superscript in ``cm³/min``.
+# Windows service consoles commonly use GBK, which cannot encode every unit symbol.
+# A diagnostic print must never abort the record-save and label-print workflow.
+for console_stream in (sys.stdout, sys.stderr):
+    reconfigure = getattr(console_stream, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):
+            pass
 
 # 启动时终止之前的进程
 PORT = 8001
