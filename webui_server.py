@@ -4970,6 +4970,125 @@ HTML_TEMPLATE = '''
             loadOperators();
             return accounts;
         }
+
+        let labelTemplateBrowserTarget = null;
+        const DEFAULT_LABEL_TEMPLATE_DIRECTORY = 'D:' + String.fromCharCode(92);
+
+        function closeLabelTemplateBrowser() {
+            const modal = document.getElementById('label-template-browser-modal');
+            if (modal) modal.classList.add('hidden');
+            labelTemplateBrowserTarget = null;
+        }
+
+        async function loadLabelTemplateDirectory(directoryPath) {
+            const modal = document.getElementById('label-template-browser-modal');
+            const pathLabel = modal.querySelector('.label-browser-path');
+            const list = modal.querySelector('.label-browser-list');
+            const upButton = modal.querySelector('.label-browser-up');
+
+            list.innerHTML = '<div class="py-8 text-center text-gray-400">正在读取...</div>';
+            try {
+                const response = await fetch(
+                    '/api/label_templates/browse?path=' + encodeURIComponent(directoryPath || '')
+                );
+                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.message || '无法读取该目录');
+                }
+
+                pathLabel.textContent = result.current_path;
+                upButton.disabled = !result.parent_path;
+                upButton.onclick = result.parent_path
+                    ? () => loadLabelTemplateDirectory(result.parent_path)
+                    : null;
+                list.innerHTML = '';
+
+                if (!result.entries.length) {
+                    list.innerHTML = '<div class="py-8 text-center text-gray-400">此目录没有子目录或 .btw 文件</div>';
+                    return;
+                }
+
+                result.entries.forEach(entry => {
+                    const row = document.createElement('button');
+                    row.type = 'button';
+                    row.className = 'w-full flex items-center gap-3 px-3 py-2 text-left rounded hover:bg-gray-600 border-b border-gray-700';
+
+                    const icon = document.createElement('span');
+                    icon.className = entry.is_directory ? 'text-yellow-300' : 'text-blue-300';
+                    icon.textContent = entry.is_directory ? '文件夹' : 'BTW';
+
+                    const name = document.createElement('span');
+                    name.className = 'flex-1 text-white truncate';
+                    name.textContent = entry.name;
+
+                    const action = document.createElement('span');
+                    action.className = 'text-xs text-gray-400';
+                    action.textContent = entry.is_directory ? '打开' : '选择';
+
+                    row.append(icon, name, action);
+                    row.addEventListener('click', () => {
+                        if (entry.is_directory) {
+                            loadLabelTemplateDirectory(entry.path);
+                            return;
+                        }
+                        if (labelTemplateBrowserTarget) {
+                            labelTemplateBrowserTarget.value = entry.path;
+                            labelTemplateBrowserTarget.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        closeLabelTemplateBrowser();
+                        showNotification('已选择标签模板：' + entry.path, 'success');
+                    });
+                    list.appendChild(row);
+                });
+            } catch (error) {
+                list.innerHTML = '';
+                const message = document.createElement('div');
+                message.className = 'py-8 px-4 text-center text-red-300';
+                message.textContent = '读取目录失败：' + error.message;
+                list.appendChild(message);
+            }
+        }
+
+        function openLabelTemplateBrowser(targetInput) {
+            labelTemplateBrowserTarget = targetInput;
+            let modal = document.getElementById('label-template-browser-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'label-template-browser-modal';
+                modal.className = 'hidden fixed inset-0 bg-black/70 flex items-center justify-center p-4';
+                modal.style.zIndex = '200';
+                modal.innerHTML = `
+                    <div class="w-full max-w-3xl bg-gray-800 border border-gray-600 rounded-lg shadow-2xl overflow-hidden">
+                        <div class="flex items-center justify-between px-4 py-3 bg-gray-700 border-b border-gray-600">
+                            <h3 class="text-lg font-semibold text-white">选择远程电脑上的标签模板</h3>
+                            <button type="button" class="label-browser-close px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-white">关闭</button>
+                        </div>
+                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-700">
+                            <button type="button" class="label-browser-up px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 rounded text-white">上一级</button>
+                            <div class="label-browser-path flex-1 px-3 py-1 bg-gray-900 text-gray-200 rounded truncate"></div>
+                        </div>
+                        <div class="label-browser-list h-[480px] overflow-y-auto p-2"></div>
+                        <div class="px-4 py-2 text-xs text-gray-400 border-t border-gray-700">
+                            直接使用所选 .btw 文件的原始路径，不会上传或复制文件。
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                modal.querySelector('.label-browser-close').addEventListener('click', closeLabelTemplateBrowser);
+                modal.addEventListener('click', event => {
+                    if (event.target === modal) closeLabelTemplateBrowser();
+                });
+            }
+
+            modal.classList.remove('hidden');
+            const currentValue = (targetInput.value || '').trim();
+            const separator = String.fromCharCode(92);
+            const lastSeparator = currentValue.lastIndexOf(separator);
+            const initialDirectory = currentValue.toLowerCase().endsWith('.btw') && lastSeparator > 1
+                ? currentValue.slice(0, lastSeparator)
+                : (currentValue || DEFAULT_LABEL_TEMPLATE_DIRECTORY);
+            loadLabelTemplateDirectory(initialDirectory);
+        }
         
         // 创建产品行
         function createProductRow(product = null, index = null) {
@@ -5004,7 +5123,6 @@ HTML_TEMPLATE = '''
                 <td class="py-2 px-3 border border-gray-600">
                     <div class="flex gap-1">
                         <input type="text" class="label-template-input flex-1 min-w-[180px] px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white text-sm" value="${escapeAttr(labelTemplate)}" placeholder="可选，选择*.btw文件">
-                        <input type="file" class="label-template-file" accept=".btw" style="display:none">
                         <button type="button" class="btn-select-template px-2 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 text-white rounded text-xs whitespace-nowrap">选择</button>
                     </div>
                 </td>
@@ -5022,50 +5140,9 @@ HTML_TEMPLATE = '''
 
             const templateButton = tr.querySelector('.btn-select-template');
             const templatePathInput = tr.querySelector('.label-template-input');
-            const templateFileInput = tr.querySelector('.label-template-file');
 
-            function openLabelTemplatePicker() {
-                templateFileInput.value = '';
-                templateFileInput.click();
-            }
-
-            async function uploadLabelTemplate() {
-                const file = templateFileInput.files && templateFileInput.files[0];
-                if (!file) return;
-                if (!file.name.toLowerCase().endsWith('.btw')) {
-                    showNotification('请选择 .btw 标签模板文件', 'error');
-                    return;
-                }
-
-                const oldText = templateButton.textContent;
-                templateButton.disabled = true;
-                templateButton.textContent = '上传中...';
-                templatePathInput.disabled = true;
-                try {
-                    const response = await fetch('/api/upload_label_template?filename=' + encodeURIComponent(file.name), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/octet-stream' },
-                        body: file
-                    });
-                    const result = await response.json();
-                    if (result.success && result.path) {
-                        templatePathInput.value = result.path;
-                        showNotification('已选择标签模板', 'success');
-                    } else {
-                        showNotification('选择标签模板失败: ' + (result.message || ''), 'error');
-                    }
-                } catch (e) {
-                    showNotification('选择标签模板异常: ' + e.message, 'error');
-                } finally {
-                    templatePathInput.disabled = false;
-                    templateButton.textContent = oldText;
-                    templateButton.disabled = false;
-                }
-            }
-
-            templateButton.addEventListener('click', openLabelTemplatePicker);
-            templatePathInput.addEventListener('dblclick', openLabelTemplatePicker);
-            templateFileInput.addEventListener('change', uploadLabelTemplate);
+            templateButton.addEventListener('click', () => openLabelTemplateBrowser(templatePathInput));
+            templatePathInput.addEventListener('dblclick', () => openLabelTemplateBrowser(templatePathInput));
             
             // 绑定删除按钮事件
             tr.querySelector('.delete-product').addEventListener('click', function() {
@@ -5712,103 +5789,48 @@ class PrintLabelRequest(BaseModel):
     qr_code: str = ""
 
 
-@app.post("/api/upload_label_template")
-async def api_upload_label_template(request: Request, filename: str = ""):
-    """Save a browser-selected .btw file on the target computer and return its path."""
-    safe_name = Path(filename or "").name.strip()
-    if not safe_name:
-        return {"success": False, "message": "文件名为空"}
-    if not safe_name.lower().endswith(".btw"):
-        return {"success": False, "message": "请选择 .btw 标签模板文件"}
+@app.get("/api/label_templates/browse")
+def api_browse_label_templates(path: str = ""):
+    """Browse target-computer directories and return only folders and .btw files."""
+    requested_path = (path or "").strip()
+    target = Path(requested_path) if requested_path else Path("D:\\")
 
-    data = await request.body()
-    if not data:
-        return {"success": False, "message": "标签模板文件为空"}
-
-    target_dir = Path(r"D:\data\label_templates")
     try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / safe_name
-        target_path.write_bytes(data)
-    except Exception as exc:
-        return {"success": False, "message": f"保存标签模板失败: {exc}"}
+        target = target.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        return {"success": False, "message": f"路径不存在或无法访问: {exc}"}
 
-    return {"success": True, "path": str(target_path)}
+    if not target.is_dir():
+        return {"success": False, "message": "请选择文件夹"}
 
-
-@app.post("/api/select_label_template")
-def api_select_label_template():
-    """Open a native file picker on the target computer and return a .btw path."""
-    script = r"""
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$owner = New-Object System.Windows.Forms.Form
-$owner.Text = "选择BarTender标签模板"
-$owner.Size = New-Object System.Drawing.Size(1, 1)
-$owner.StartPosition = "CenterScreen"
-$owner.ShowInTaskbar = $false
-$owner.TopMost = $true
-$owner.WindowState = "Minimized"
-$owner.Add_Shown({
-    $owner.WindowState = "Normal"
-    $owner.Activate()
-})
-$dialog = New-Object System.Windows.Forms.OpenFileDialog
-$dialog.Title = "选择BarTender标签模板"
-$dialog.Filter = "BarTender标签 (*.btw)|*.btw"
-$dialog.CheckFileExists = $true
-$dialog.Multiselect = $false
-$dialog.RestoreDirectory = $true
-if (Test-Path "D:\data") {
-    $dialog.InitialDirectory = "D:\data"
-}
-$owner.Show()
-$owner.TopMost = $true
-$owner.Activate()
-if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
-    Write-Output $dialog.FileName
-    $owner.Close()
-    exit 0
-}
-$owner.Close()
-exit 2
-"""
+    entries = []
     try:
-        result = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-STA",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                script,
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            timeout=300,
-        )
-    except subprocess.TimeoutExpired:
-        return {"success": False, "cancelled": True, "message": "选择标签模板超时"}
-    except Exception as exc:
-        return {"success": False, "cancelled": False, "message": str(exc)}
+        for entry in target.iterdir():
+            try:
+                is_directory = entry.is_dir()
+                if not is_directory and entry.suffix.lower() != ".btw":
+                    continue
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "path": str(entry),
+                        "is_directory": is_directory,
+                    }
+                )
+            except OSError:
+                continue
+    except OSError as exc:
+        return {"success": False, "message": f"无法读取目录: {exc}"}
 
-    selected_path = (result.stdout or "").strip().splitlines()
-    selected_path = selected_path[-1].strip().lstrip("\ufeff") if selected_path else ""
-    if result.returncode == 2:
-        return {"success": False, "cancelled": True, "message": "已取消选择"}
-    if result.returncode != 0:
-        return {"success": False, "cancelled": False, "message": (result.stderr or result.stdout or "").strip()}
-    if not selected_path:
-        return {"success": False, "cancelled": True, "message": "未选择标签模板"}
-    if not selected_path.lower().endswith(".btw"):
-        return {"success": False, "cancelled": False, "message": "请选择 .btw 标签模板文件"}
-
-    return {"success": True, "path": selected_path}
+    entries.sort(key=lambda item: (not item["is_directory"], item["name"].lower()))
+    parent = target.parent
+    parent_path = None if parent == target else str(parent)
+    return {
+        "success": True,
+        "current_path": str(target),
+        "parent_path": parent_path,
+        "entries": entries,
+    }
 
 
 @app.post("/api/serial")
