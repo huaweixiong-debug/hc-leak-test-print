@@ -1,4 +1,6 @@
 import unittest
+import threading
+import time
 from unittest import mock
 
 import modbus_utils
@@ -95,6 +97,29 @@ class ModbusRealtimeCacheTests(unittest.TestCase):
             4,
             modbus_utils.decode_realtime_step_code(response.hex()),
         )
+
+    def test_transaction_blocks_other_reads_until_all_commands_finish(self):
+        reader_started = threading.Event()
+        reader_finished = threading.Event()
+
+        def run_reader():
+            reader_started.set()
+            modbus_utils.read_holding_registers(0x20, 1)
+            reader_finished.set()
+
+        with mock.patch.object(
+            modbus_utils, "_send_raw_serial", return_value="FF03020000A050"
+        ):
+            with modbus_utils.modbus_transaction():
+                reader = threading.Thread(target=run_reader)
+                reader.start()
+                self.assertTrue(reader_started.wait(timeout=1))
+                time.sleep(0.02)
+                self.assertFalse(reader_finished.is_set())
+
+            reader.join(timeout=1)
+
+        self.assertTrue(reader_finished.is_set())
 
 
 if __name__ == "__main__":

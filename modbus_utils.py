@@ -9,7 +9,8 @@ import os
 import socket
 import threading
 import time
-from typing import Optional
+from contextlib import contextmanager
+from typing import Iterator, Optional
 
 import serial
 
@@ -32,12 +33,19 @@ SERIAL_ERROR_COOLDOWN_SECONDS = float(
 
 # 全局互斥锁，确保Modbus操作的线程安全
 # 所有读取和写入操作必须通过这个锁进行互斥
-modbus_lock = threading.Lock()
+modbus_lock = threading.RLock()
 _serial_connection = None
 _last_serial_issue_at = 0.0
 _serial_cooldown_until = 0.0
 _realtime_cache_response = None
 _realtime_cache_at = 0.0
+
+
+@contextmanager
+def modbus_transaction() -> Iterator[None]:
+    """Keep a multi-command device operation exclusive from start to finish."""
+    with modbus_lock:
+        yield
 
 def modbus_crc(data_hex):
     """计算 Modbus RTU CRC16 校验码"""

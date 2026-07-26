@@ -5558,7 +5558,15 @@ def api_stop_test():
         return {"success": False, "message": str(e)}
 
 # 导入实时监控模块的数据读取函数
-from modbus_utils import send_raw, modbus_crc, STATION_ID, WINDOWS_HOST_IP, TCP_PORT, read_holding_registers
+from modbus_utils import (
+    STATION_ID,
+    TCP_PORT,
+    WINDOWS_HOST_IP,
+    modbus_crc,
+    modbus_transaction,
+    read_holding_registers,
+    send_raw,
+)
 from ateq_units import ATEQ_UNIT_ABBREVIATIONS, decode_ateq_uint32
 
 
@@ -6017,6 +6025,11 @@ def api_get_products():
 
 @app.get("/api/params")
 def get_params(program: int = 1):
+    with modbus_transaction():
+        return _get_params_exclusive(program)
+
+
+def _get_params_exclusive(program: int = 1):
     """获取测试参数 (fill_time, stab_time, test_time) - 使用与read_program_times_final.py相同的方法"""
     try:
         # 参数标识符定义 (与read_program_times_final.py一致)
