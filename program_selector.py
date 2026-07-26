@@ -14,6 +14,8 @@ from database import save_test_record, get_next_daily_serial
 from serial_generator import get_generator
 from modbus_utils import read_holding_registers, send_raw, modbus_crc, STATION_ID
 from ateq_units import decode_ateq_uint32, get_ateq_unit_abbreviation
+from stepcode_cycle import StepCodeCycleDetector
+from label_data_files import LABEL_DATA_DIR, write_label_data_files
 
 WINDOWS_HOST_IP = '172.18.144.1'
 TCP_PORT = 502
@@ -287,9 +289,8 @@ class TestExecutor:
         self._hw_monitor_pending_context = {}
         self._hw_context_generation = 0
         self._hw_consumed_generation = 0
-        self._hw_monitor_thread = None
-        self._plc_command_thread = threading.Thread(target=self._plc_command_monitor, daemon=True)
-        self._plc_command_thread.start()
+        self._hw_monitor_thread = threading.Thread(target=self._hw_stepcode_monitor, daemon=True)
+        self._hw_monitor_thread.start()
 
     def _build_runtime_state(self):
         """Doc."""
@@ -670,6 +671,7 @@ class TestExecutor:
         print_message = ""
         record_error = ""
         result_file_error = ""
+        label_data_error = ""
 
         # 闂傚倸鍊搁崐鎼佸磹閹间礁纾归柟闂寸绾惧綊鏌熼梻瀵割槮缁惧墽鎳撻—鍐偓锝庝簼閹癸綁鏌ｉ鐐搭棞闁靛棙甯掗～婵嬫晲閸涱剙顥氬┑掳鍊楁慨鐑藉磻濞戔懞鍥偨缁嬫寧鐎悗骞垮劚椤︻垳绮堢€ｎ偁浜滈柟鍝勭Ф閸斿秵銇勯弬鎸庡枠婵﹦绮幏鍛喆閸曨偂鍝楅梻浣侯焾鐎涒晛顪冮挊澶屾殾婵犲﹤鍟犻弸搴ㄦ煙鐎涙绠ユ俊顐ｇ矒閹嘲顭ㄩ崨顓ф毉闁汇埄鍨遍〃濠囧箖閳ユ枼妲堟慨姗堢到娴滅偓顨ラ悙鑼虎闁告梹鑹捐灃闁绘娅曢崐鎰版煟濞戝崬娅嶇€殿喕绮欓、姗€鎮㈤崫鍕睄闂傚倷绀侀幉锟犲礉閿旂晫顩叉繝濠傜墕閸戠姵绻涢幋娆忕仾闁绘挻鐩幃姗€鎮欓幓鎺嗘寖濠电偛寮跺娆撳煘閹达附鏅柛鏇ㄥ亜楠炲顪冮妶鍐ㄧ仾闁荤啿鏅犻獮鍐焺閸愨晛鍔呭銈嗘⒐閸ㄦ繂顫濋敂鍓х＝闁稿本鑹鹃埀顒佹倐瀹曟劙鎮滈懞銉ユ畱闂佽偐顭堥悘姘跺矗韫囨稒鐓熼柕蹇嬪焺閻掗箖鏌涢妸銉モ偓鍧楀蓟濞戞粠妲煎銈冨妼閹虫劗鍒掓繝姘唨妞ゆ挾鍠庢禒顓炩攽閻愬弶顥滅紒缁樺姍椤㈡棃顢旈崟銊︽杸濡炪倖鐗楃粙鎺斾焊閿曞倹鐓涢悘鐐插⒔閳藉鏌嶇憴鍕伌鐎规洜鍠栭、鏇㈠閻樻ǜ鍎崇槐鎾诲磼濞嗘劗銈版繛瀛樼矤閸撶喎鐣烽幋锔藉亜闁绘垶锕╁鐔兼⒑鐟欏嫬鍔ら柣掳鍔嶉崚濠囧箻椤旂晫鍘遍梺瑙勫劤閸熻法鐥缁參骞嬮敂瑙ｆ嫽婵炶揪绲介幉锟犲疮閻愮儤鐓犵憸鐗堝笧閻ｇ儤銇勯姀锛勫⒌鐎规洖鐖奸、妤呭焵椤掑倻涓嶉柡灞诲劜閻撳繘鐓崶銊︾鐞氥儱鈹戦埄鍐ㄧ祷闁绘鎹囧濠氬即閿涘嫮鏉搁梺鍝勬川閸婎偊濡烽妷搴㈡閹晠宕ｆ径濠冪亷婵犳鍠栭敃銊モ枍閿濆绠熼柟缁㈠枛缁€瀣亜閹哄棗浜鹃梺鍛婃尭缂嶅﹤顫忓ú顏勫窛濠电偞甯╂禍顏呬繆閸撲胶鐭欓悹鎭掑妽濞堟儳鈹戦悩璇у伐闁绘锕畷鎴﹀Ω閳哄倻鍘卞┑鐐村灦閳藉宕奸妷銉ь唵闂佺粯鍨堕…鍥╃不妤ｅ啯鐓涘璺侯儏閻忋儵鏌熼钘夌伌闁哄矉缍侀幃銏ゅ级閹存繂袝闂備浇顕栭崹顖滅矆娓氣偓閳ワ箓濡搁埡渚€鍞堕梺缁樻煥閹碱偊鐛崼銉︹拻濞撴埃鍋撴繛浣冲洠鈧箓宕奸妷銉э紵闂佽鍎兼慨銈夊疾椤掑倵鍋撻獮鍨姎婵☆偅姊婚幑銏ゅ幢濞戞瑧鍘卞┑鐐叉濞存艾危缁嬪簱鏀芥い鏃囧亹鏍″銈冨妸閸庣敻骞冨▎鎾崇骇闁瑰濮烽幊鍡涙⒑閸撗呭笡闁绘濞€瀵顓奸崼顐ｎ€囬梻浣告啞閹歌崵绮欓幘璇茬闁圭儤姊荤壕鍏间繆椤栨繂浜归柣锕€鐗嗛埞鎴︻敊閺傘倓绶甸梺鍛娒妶鎼佸春閳ь剚銇勯幒鎴濃偓褰掑汲椤掑嫭鐓涚€光偓鐎ｎ剛袦婵犳鍠掗崑鎾绘⒑缂佹◤顏堝疮閸ф姹查柛顐ｇ妇閺€浠嬫煟閹邦剙绾ч柛锝堟缁辨帡顢欓懞銉ョ３閻庢鍠涢褔鍩ユ径鎰潊闁绘ɑ顔栭崥鍛節閻㈤潧孝闁挎洏鍊濋獮濠囧箛閻楀牆浜楅梺鍦亾閺嬪ジ寮ㄩ懞銉ｄ簻闁哄啫鍊堕埀顒€顑夊銊х磼濡湱绠氶梺缁樺姈婢瑰棝鎯屽▎鎾寸厽婵炴垵宕▍宥嗩殽閻愬弶鍠樻い銏★耿閹垹鐣￠弶璇俱倝姊婚崒娆戝妽閻庣瑳鍛床闁稿瞼鍋涚壕鍦喐閻楀牆閲滅紓宥嗙墱閳ь剙绠嶉崕閬嵥囨导鏉戠厱闁圭儤鍤氳ぐ鎺撴櫜闁割偆鍣ユ禒鈺呮煟閵忊晛鐏＄紒瀣浮婵＄敻宕熼姣尖晠鏌曟径娑氱暠婵炲拑缍侀弻褔鎳￠妶鍛勃缂備胶绮换鍫澪涢崘銊㈡闁告鍋涙竟鍫㈢磽閸屾瑨鍏屽┑顔炬暬閹囨偐鐠囪尪鎽曢梺鍝勬祫缁辨洟鎮块埀顒勬煟鎼搭垳绉靛ù婊勭墵瀹曟垿骞樼拠鎻掑祮闂侀潧绻嗛埀顒佹灱閸嬫捇宕稿Δ浣哄幈濡炪値鍘介崹鍨閺嶎灐鐟邦煥閸曨厾鐓夐梺鍝勭灱閸犳牕鐣烽锕€绀嬫い鎺戭槹椤ワ絽鈹戦悙鑼憼缂侇喗鎸剧划濠氬冀瑜滃鏍р攽閻樺疇澹橀柣鎰功閹茬顭ㄩ崗鎾呯秮瀹曠兘顢橀悩纰夌床缂傚倸鍊烽悞锕傗€﹂崶鈺冧笉闁哄稁鍋嗙壕鑲╃磽娴ｈ鐒界紒鐘靛仧閳ь剝顫夊ú妯兼暜閹烘缍栨繝闈涱儛閺佸洭鏌ｉ弴姘鳖槮闁轰礁銈稿濠氬磼濮橆兘鍋撴搴ｇ焼濞达綁娼婚懓鍧楁煕濡ゅ啫浜归柡瀣Ч閺屾洝绠涚€ｎ亞浼勭紓浣插亾濠电姴鍊堕埀顒佸笒椤繈鏁愰崨顒€顥氶梺璇插椤旀牠宕板☉銏╂晪鐟滄棃銆佸Ο鑽ら檮缂佸娉曢崐鐐烘⒑闂堟侗鐒鹃柛搴＄枃閵囨劙骞橀瑙ｆ嫽婵炶揪绲介幉锛勬嫻閿涘嫮纾兼い鏇炴噹閻忥綁鏌℃笟鍥ф灈閾绘牠鏌涘☉鍗炲箻闁挎稒鐟ラ—鍐Χ閸℃瑥鈷堥梺绋款儑閸嬨倝宕哄☉銏犵闁挎棁妫勬禒顖炴⒑閹肩偛鍔电紒鍙夋そ瀹曟垿骞樺畷鍥ㄦ闂佹悶鍎绘俊鍥极閹€鏀介柣妯活問閺嗩垱淇婇幓鎺撳殗鐎规洘鍨垮畷鎺楁倷閺夋垶鐣遍梻浣告啞閹搁绮堟笟鈧畷鐟扳攽鐎ｎ偄浠梺鎼炲劘閸斿酣濡剁€涙ü绻嗛柟缁樺笧婢э箓鏌＄仦鐐缂佺姵鐩鎾倷閹扳晛鍔滈柕鍥у瀵噣鍩€椤掑倹鏆滈柍銉﹀墯濞兼牗绻涘顔荤盎濞磋偐濞€閺屾盯寮撮悙鍏哥驳闁轰礁鐗撳缁樻媴鐟欏嫬浠╅梺鍛婃煥闁帮絽鐣锋导鏉戝唨鐟滃繘寮抽敃鍌涚厵閺夊牆澧介悾杈╃磼閻樺樊鐓奸柟顔肩秺瀹曟儼顦叉俊顐ｎ焽閹茬顓兼径鍡忓亾閿旂偓宕夐柕濠忕畱绾绢垱绻涢幘鏉戝毈闁搞劋鍗冲畷婊堝箮閼恒儮鎷洪梺鍛婄☉椤偓闁硅揪绠戠粻鏍煕瀹€鈧崑娑氱不閺嶃劋绻嗛柕鍫濇噺閸ｇ晫鈧鎸风欢姘跺蓟濞戔懇鈧箓骞嬪┑鍥╀邯濠电姵顔栭崰鏍煀閿濆拋娼栨繛宸簼閸嬶繝鏌℃径瀣嚋婵絾鍔欏缁樻媴缁嬭法鐩庣紓鍌氱С缁舵岸骞冩导鎼晪闁逞屽墮閻ｅ嘲顫滈埀顒勩€佸▎鎾村殐闁冲搫锕ら幃鍫ユ⒒閸屾瑧鍔嶉悗绗涘吘娑欐媴閼叉繃鐩畷鐔碱敍濮樺崬濮︽俊鐐€栫敮鎺楀磹瑜版帒姹叉い鎺戝閻撴盯鎮橀悙鎻掆挃婵炲弶鎸抽弻宥夊Ψ椤栨粎鏆ゅΔ鐘靛仜椤戝懘鍩為幋锕€宸濇い鏍ㄨ壘濮ｅ牓姊婚崒姘偓鐑芥倿閿曞倹鍎戠憸鐗堝笒缁€澶屸偓骞垮劚椤︻垶宕归崒鐐寸厱闁挎棁顕ч獮妤併亜椤愶絾绀嬮柡宀€鍠栭幃婊冾潨閸℃﹩鍚傞梻浣芥〃缁€渚€鏁冮鍫濊摕闁靛牆鎮块崷顓涘亾閿濆骸浜濋柣婵囨濮婃椽骞囨担椋庢晼闂佽桨娴囬褔锝炶箛鎾佹椽顢旈崟顒€绁舵俊鐐€栭幐楣冨磻濞戞瑧顩锋俊顖濆亹绾句粙鏌涚仦鐐殤鐎涙繈姊洪幐搴㈠濞存粍绮撻、姘舵晲閸℃瑧鐦堝┑顔斤供閸撴瑧绮ｅ☉姗嗘富闁靛牆妫欑亸鎵磼鐎ｎ偄娴柨婵堝仜椤撳ジ宕ㄩ鍛澑婵＄偑鍊栧褰掑几婵犳碍鍤€閻犳亽鍔庡Λ顖涖亜閹捐泛顎岄柣鎺楃畺瀹曗剝娼忛妸锝勭盎闂佸湱鍎ら崹鐢割敂椤忓牊鐓冮梺鍨儏濞搭噣鏌＄仦鍓с€掑ù鐙呯畵瀹曟粏顦抽柛锝庡灦濮婅櫣绮欑捄銊ь唶闂佹椿鍓濋崑鎰ｉ幇鏉跨婵°倕锕ラ弲顏堟⒑閸涘﹣绶遍柛妯煎亾缁傛帡骞栨担鍏夋嫼闂佺粯鍔樺Λ鍕礉閻㈢數纾奸柣妯挎珪鐏忣參鏌ｉ敐澶嬫暠缂佽櫣鏅划娆戞嫚娣囧崬濮傞柡灞炬礃瀵板嫬鈽夐姀鈽嗏偓宥夋偠濮樺墽绉慨濠傤煼瀹曟帒鈻庨幋顓熜滈梻浣告贡閳峰牓宕戦崱娆忓灊婵炲棙鍔楅悷褰掓煃瑜滈崜娆撴偩閻戣棄顫呴柨娑樺濡绢噣姊洪崨濠勨槈闁挎洏鍊濋崺鈧い鎺嗗亾婵炵》绻濆璇测槈閳垛斁鍋撻敃鍌氱婵犻潧鎳愰幐澶娾攽閻愯尙鎽犵紒顔肩Ф閸掓帡骞樼拠鑼舵憰闂佺粯鏌ㄩ幉锛勭礊閸ヮ剚鐓曢柟鐐殔閹瑩骞嬮悩鐢碉紲缂傚倷闄嶉崹褰掔嵁閺嵮岀唵鐟滃秴霉瀹勬嫈锝夊箛閺夎法顔婇梺鐟扮摠濮婂綊锝炲鍛斀闁宠棄妫楅悘銉╂煕鐎ｎ偄濮嶆い銏＄懄缁绘繈宕熼鐙呯闯?
         try:
@@ -694,7 +696,7 @@ class TestExecutor:
         try:
             serial_info = get_generator().get_next_serial_number(self.product_model or 'UNKNOWN', self.qr_code)
             serial_number = serial_info.serial_number
-            sequence_code = f"{serial_info.sequence:05d}"
+            sequence_code = f"{serial_info.sequence:04d}"
 
             save_test_record(
                 qr_code=self.qr_code,
@@ -719,12 +721,24 @@ class TestExecutor:
                 result_file_error = str(result_error)
                 print(f"[RESULT-FILE] Failed to update {LEAK_RESULT_FILE}: {result_error}")
 
+            try:
+                write_label_data_files(
+                    test_data=self.test_data,
+                    product_model=self.product_model,
+                    operator=self.operator,
+                    daily_sequence=sequence_code,
+                    overall_result=overall_result,
+                )
+            except Exception as label_error:
+                label_data_error = str(label_error)
+                print(f"[LABEL-DATA] Failed to update {LABEL_DATA_DIR}: {label_error}")
+
             # 放行信号只依赖数据库落库，不应等待标签打印完成。
             try:
                 from line_runtime import reset_scan_gate_after_test
                 reset_scan_gate_after_test()
             except Exception as reset_error:
-                print(f"[PLC] Failed to reset M26.0 immediately after save: {reset_error}")
+                print(f"[LINE] Failed to finalize scan gate after save: {reset_error}")
 
             self.record_saved_payload = {
                 'qr_code': self.qr_code,
@@ -742,6 +756,8 @@ class TestExecutor:
         try:
             if overall_result != 'PASS':
                 raise RuntimeError('__skip_non_pass_print__')
+            if label_data_error:
+                raise RuntimeError(f'标签数据文件更新失败，已停止打印: {label_data_error}')
             print_attempted = True
             from line_runtime import print_label_if_enabled
 
@@ -764,8 +780,10 @@ class TestExecutor:
             if str(e) != '__skip_non_pass_print__':
                 print_message = str(e)
 
-        if record_saved and not result_file_error:
+        if record_saved and not result_file_error and not label_data_error:
             self.update_status('saved', f'濠电姷鏁告慨鐑藉极閸涘﹥鍙忛柣鎴ｆ閺嬩線鏌涘☉姗堟敾闁告瑥绻橀弻锝夊箣閿濆棭妫勯梺鍝勵儎缁舵岸寮婚悢鍏尖拻閻庨潧澹婂Σ顔剧磼閻愵剙鍔ゆい顓犲厴瀵鏁愭径濠勭杸濡炪倖甯婄拋鏌ュ几濞嗘挻鈷戠紓浣姑粭鈺佲攽椤斿搫鈧骞戦姀鐘闁靛繒濮撮懓鍨攽閳藉棗鐏ｇ紒顕呭灦瀹曟洘鎯旈妸锔规嫼闁哄鍋炴竟鍡浰囬敃鍌涘€垫慨姗嗗亜瀹撳棛鈧鍠涢褔鍩ユ径鎰潊闁冲搫鍊瑰▍鍥⒒娴ｈ櫣甯涢拑杈╂喐閺夊灝鏆為柟渚垮姂瀵挳濮€閳锯偓閹疯櫣绱撴担鍓插剰婵炵》绻濋、鎾澄旈崨顔惧弳闂佸搫娲﹂敋闁告棑绠戦埞鎴︽晬閸曨剚姣堥悗瑙勬礈閸犳牠銆佸☉姗嗘僵妞ゆ巻鍋撻柡浣靛€濆缁樼瑹閳ь剙顭囪閸ｅ綊姊洪崨濠佺繁闁搞劍澹嗛弫顕€骞掗幘鍓佺槇闂佹眹鍨藉褎鐗庢俊鐐€栧褰掓偋閻樿尙鏆﹂悷娆忓椤曢亶鏌℃径瀣鐟滄棃寮婚悢鍏尖拻閻庨潧澹婂Σ顕€姊洪挊澶婃殶闁哥姵鐗犲璇差吋婢跺﹦鍘告繛杈剧到閹测€斥枔椤撶姷纾藉ù锝囶焾椤ｆ娊鏌涚€ｃ劌鈧繈鎮伴鈧浠嬧€栭妷銉╁弰妞ゃ垺顨婇崺鈧い鎺戝閸婅埖銇勯弴妤€浜鹃梺鍝勬湰濞茬喎鐣烽崡鐐嶆梻鈧綆浜滈～鐘电磽閸屾瑦绁板瀛樻倐楠炴劖绻濆顒傤唵闂佸憡绋掑娆戠矆閸儲鐓曟繛鍡楅獜缁辩偞銇勮箛鎾愁仱闁衡偓娴犲鐓熼柟閭﹀墯閳绘洘淇婇懠棰濇綈缂佺粯鐩幊鐘活敆閳ь剟寮稿☉姘ｅ亾鐟欏嫭绀冩俊鐐扮矙瀹曟椽鍩€椤掍降浜滈柟鍝勭Ч濡惧嘲霉濠婂嫮鐭掗柡宀€鍠栭幃婊兾熼搹閫涙樊闂備礁鎼鍐磹閺嶎偅宕叉繛鎴欏灩缁€鍌炴煟閹炬娊顎楁い顐ｅ浮濮婃椽宕崟顓犲姽缂傚倸绉崇欢姘暦濞差亜绀嬫い鏍ㄦ皑椤︺劑姊洪崘鍙夋儓闁哥姵鑹惧嵄妞ゆ帊妞掔换鍡涙煟閹板吀绨婚柍褜鍓氶悧鏇犲弲闂佸啿鎼崯鎵矆婵犲倶鈧帒顫濋敐鍛闂備胶绮笟妤呭窗閺嶎叏缍栨繝濠傜墕閻掑灚銇勯幒鎴濐仼缂佺姷濮电换婵囩節閸屾粌顤€濡炪們鍎遍悧濠勬崲濞戙垹绠ｉ柣鎴濇閸旂兘姊洪崨濠勭畵濡ょ姵鎮傞崺鐐哄箣閿旇棄浜归梺褰掝暒缁€渚€寮查柆宥嗏拺闁告縿鍎辨牎濡炪們鍔岄ˇ鐢哥嵁濡ゅ拋鏁冮柨婵嗘川閻﹀牓姊洪崘鑼闁稿鎹囬弻娑㈠箛闂堟稒鐏堥悗娈垮枙閸楁娊骞? {serial_number}')
+        elif record_saved and label_data_error:
+            self.update_status('label_data_error', f'测试记录已保存，但标签数据文件更新失败: {label_data_error}')
         elif record_saved:
             self.update_status('result_file_error', f'测试记录已保存，但 leak.txt 更新失败: {result_file_error}')
         else:
@@ -793,10 +811,16 @@ class TestExecutor:
             'record_saved': record_saved,
             'result_file_saved': record_saved and not result_file_error,
             'result_file_error': result_file_error,
+            'label_data_files_saved': record_saved and not label_data_error,
+            'label_data_error': label_data_error,
             'print_attempted': print_attempted,
             'print_success': print_success,
             'print_message': print_message,
-            'phase': ('saved' if not result_file_error else 'result_file_error') if record_saved else 'save_error'
+            'phase': (
+                'label_data_error'
+                if label_data_error
+                else ('saved' if not result_file_error else 'result_file_error')
+            ) if record_saved else 'save_error'
         }
         self.completion_sequence += 1
         self._persist_runtime_state()
@@ -1070,6 +1094,7 @@ class TestExecutor:
     
     def _hw_stepcode_monitor(self):
         """Background thread: watch stepcode independently of UI Start."""
+        cycle_detector = StepCodeCycleDetector()
         prev_stepcode = 0
         cycle_active = False
         in_step6 = False
@@ -1129,11 +1154,9 @@ class TestExecutor:
             return ctx
 
         def should_run_program2(ctx):
-            try:
-                program2 = int(ctx.get("program2") or 0)
-            except Exception:
-                program2 = 0
-            return bool(ctx.get("switch_chamber")) and program2 > 0
+            # Passive StepCode monitoring never issues a second start command.
+            # A second chamber remains available through the operator Start flow.
+            return False
 
         def assign_result(slot, data):
             nonlocal pressure_at_65535, leak_at_65535
@@ -1241,6 +1264,7 @@ class TestExecutor:
             try:
                 time.sleep(poll_interval)
                 if self.running:
+                    cycle_detector.observe(None)
                     prev_stepcode = 0
                     cycle_active = False
                     hw_slot = 1
@@ -1249,15 +1273,12 @@ class TestExecutor:
                     continue
                 sc = read_step_code()
                 if sc is None:
+                    cycle_detector.observe(None)
                     continue
+                cycle_started = cycle_detector.observe(sc)
                 if sc >= 4 and sc <= 100:
                     if not cycle_active:
-                        if (
-                            hw_slot == 1
-                            and self._hw_context_generation <= self._hw_consumed_generation
-                        ):
-                            # ATEQ can briefly return to an active step after a completed
-                            # cycle. Without a newly scanned context this is not a new test.
+                        if not cycle_started:
                             prev_stepcode = sc
                             continue
                         cycle_active = True
@@ -1271,9 +1292,9 @@ class TestExecutor:
                                 self.test_data['program1'] = int(ctx.get("program1") or 0) or None
                             except Exception:
                                 self.test_data['program1'] = None
-                            self.update_status('running_program1', 'Program 1 started by PLC M26.0', 1)
+                            self.update_status('running_program1', 'ATEQ test detected at StepCode 4', 1)
                         else:
-                            self.update_status('running_program2', 'Program 2 running by PLC M26.0', 2)
+                            self.update_status('running_program2', 'ATEQ program 2 detected at StepCode 4', 2)
                             program2_start_requested_at = 0.0
                         self._persist_runtime_state()
                         print(f"[HW-MONITOR] External program{hw_slot} cycle started, stepcode={sc}")

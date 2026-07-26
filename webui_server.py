@@ -134,9 +134,6 @@ try:
     from line_runtime import (
         get_line_settings,
         mark_scan_qualified,
-        read_plc_control_inputs,
-        read_m26_0,
-        set_m26_0,
         start_line_runtime,
         update_line_settings,
     )
@@ -144,9 +141,6 @@ except Exception as exc:
     LINE_RUNTIME_IMPORT_ERROR = exc
     get_line_settings = None
     mark_scan_qualified = None
-    read_plc_control_inputs = None
-    read_m26_0 = None
-    set_m26_0 = None
     start_line_runtime = None
     update_line_settings = None
 
@@ -440,6 +434,11 @@ HTML_TEMPLATE = '''
             cursor: col-resize;
             user-select: none;
         }
+        #plc-settings-card,
+        #page-manual,
+        #tab-manual {
+            display: none !important;
+        }
 
         /* Deterministic workstation layout for the test page. */
         #canvas::before {
@@ -486,7 +485,7 @@ HTML_TEMPLATE = '''
             }
         }
 
-        /* 1600x900 workstation: one-screen, cache-proof grid. */
+        /* 1280x1024 monitor with a normally maximized browser (~1280x900 viewport). */
         @media (min-width: 1180px) {
             #page-test {
                 overflow: hidden !important;
@@ -494,12 +493,12 @@ HTML_TEMPLATE = '''
             #canvas {
                 display: grid;
                 grid-template-columns: minmax(0, 0.95fr) minmax(0, 0.95fr) minmax(0, 1.3fr) minmax(0, 1.5fr);
-                grid-template-rows: 224px 226px minmax(244px, 1fr);
-                gap: 10px;
+                grid-template-rows: 210px 210px minmax(220px, 1fr);
+                gap: 8px;
                 width: 100% !important;
                 height: 100% !important;
-                min-height: 742px !important;
-                padding: 14px;
+                min-height: 0 !important;
+                padding: 10px;
                 overflow: hidden !important;
                 align-content: stretch;
             }
@@ -541,7 +540,7 @@ HTML_TEMPLATE = '''
             }
             #page-test .drag-handle {
                 min-height: 44px;
-                padding: 9px 14px !important;
+                padding: 7px 10px !important;
                 cursor: default;
             }
             #page-test .resize-handle {
@@ -819,16 +818,16 @@ HTML_TEMPLATE = '''
                     </label>
                 </div>
 
-                <div id="plc-m26-status-panel" class="bg-gray-700/30 rounded-lg p-3 text-xs">
+                <div id="ateq-communication-status-panel" class="bg-gray-700/30 rounded-lg p-3 text-xs">
                     <div class="flex items-center justify-end mb-2">
-                        <span id="plc-connection-status" class="px-2 py-0.5 rounded bg-gray-600 text-gray-200">读取中</span>
+                        <span id="ateq-connection-status" class="px-2 py-0.5 rounded bg-gray-600 text-gray-200">读取中</span>
                     </div>
                     <div class="flex items-center gap-2">
-                        <span id="plc-m26-dot" class="w-2.5 h-2.5 rounded-full bg-gray-500"></span>
-                        <span id="plc-m26-value" class="text-white font-semibold">--</span>
-                        <span id="plc-m26-source" class="text-gray-500">Snap7</span>
+                        <span id="ateq-communication-dot" class="w-2.5 h-2.5 rounded-full bg-gray-500"></span>
+                        <span id="ateq-stepcode-value" class="text-white font-semibold">StepCode --</span>
+                        <span id="ateq-communication-source" class="text-gray-500">COM1 · Station 255</span>
                     </div>
-                    <div id="plc-m26-message" class="mt-2 text-gray-500 leading-snug">等待读取Snap7状态...</div>
+                    <div id="ateq-communication-message" class="mt-2 text-gray-500 leading-snug">等待ATEQ通讯...</div>
                 </div>
                 
                 <!-- 程序配置显示 -->
@@ -2000,10 +1999,8 @@ HTML_TEMPLATE = '''
             }
         });
 
-        const savedScanAutoStart = localStorage.getItem('scan_auto_start_enabled');
-        let scanAutoStartEnabled = savedScanAutoStart === null
-            ? true
-            : savedScanAutoStart === 'true';
+        const savedScanAutoStart = null;
+        let scanAutoStartEnabled = false;
 
         function renderKeyboardScannerToggle() {
             const button = document.getElementById('btn-scan-start');
@@ -2011,11 +2008,12 @@ HTML_TEMPLATE = '''
             if (!button || !label) return;
 
             button.setAttribute('aria-pressed', scanAutoStartEnabled ? 'true' : 'false');
-            label.textContent = scanAutoStartEnabled ? '已开启' : '已关闭';
+            button.disabled = true;
+            label.textContent = 'StepCode/手动';
         }
 
         document.getElementById('btn-scan-start')?.addEventListener('click', function() {
-            scanAutoStartEnabled = !scanAutoStartEnabled;
+            scanAutoStartEnabled = false;
             localStorage.setItem('scan_auto_start_enabled', String(scanAutoStartEnabled));
             renderKeyboardScannerToggle();
             const qrInput = document.getElementById('qr-input');
@@ -2027,7 +2025,7 @@ HTML_TEMPLATE = '''
             showNotification(
                 scanAutoStartEnabled
                     ? '扫码自动启动已开启，扫码后仪器会立即启动'
-                    : '扫码自动启动已关闭，扫码后请点击“启动”或按现场启动按钮(M25.0)',
+                    : '扫码后等待ATEQ StepCode由65535变为4，或点击“启动”',
                 'info'
             );
         });
@@ -2037,7 +2035,6 @@ HTML_TEMPLATE = '''
             if (qrInput) {
                 qrInput.value = '';
                 qrInput.focus();
-                sendPLCCommand('M26.0', false);
             }
         });
 
@@ -2095,6 +2092,7 @@ HTML_TEMPLATE = '''
                         if (!recordSavedSequenceInitialized) {
                             lastRecordSavedSequence = recordSavedSequence;
                             recordSavedSequenceInitialized = true;
+                            await loadRecords({ forceReload: true });
                         } else if (recordSavedSequence > lastRecordSavedSequence) {
                             lastRecordSavedSequence = recordSavedSequence;
                             await resetAfterSavedTest(result.saved_qr_code || '');
@@ -2600,8 +2598,39 @@ HTML_TEMPLATE = '''
             }
         }
 
-        loadM26Status();
-        setInterval(loadM26Status, 15000);
+        async function loadAteqCommunicationStatus() {
+            const status = document.getElementById('ateq-connection-status');
+            const dot = document.getElementById('ateq-communication-dot');
+            const value = document.getElementById('ateq-stepcode-value');
+            const source = document.getElementById('ateq-communication-source');
+            const message = document.getElementById('ateq-communication-message');
+            if (!status || !dot || !value || !source || !message) return;
+            try {
+                const response = await fetch('/api/data', { cache: 'no-store' });
+                const data = await response.json();
+                const connected = Boolean(data && data.success);
+                status.textContent = connected ? 'ATEQ已连接' : 'ATEQ未连接';
+                status.className = 'px-2 py-0.5 rounded text-white ' + (connected ? 'bg-green-600' : 'bg-red-600');
+                dot.className = 'w-2.5 h-2.5 rounded-full ' + (connected ? 'bg-green-400' : 'bg-red-500');
+                value.textContent = connected ? ('StepCode ' + data.step_code) : 'StepCode --';
+                source.textContent = 'COM1 · Station 255';
+                message.textContent = connected
+                    ? (data.step_code === 65535 ? '待机已就绪；变为4时记录测试开始' : 'ATEQ通讯正常')
+                    : ('通讯异常' + (data.error ? '：' + data.error : ''));
+                message.className = 'mt-2 leading-snug ' + (connected ? 'text-gray-400' : 'text-red-300');
+            } catch (error) {
+                status.textContent = 'ATEQ未连接';
+                status.className = 'px-2 py-0.5 rounded bg-red-600 text-white';
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-red-500';
+                value.textContent = 'StepCode --';
+                source.textContent = 'COM1 · Station 255';
+                message.textContent = '通讯异常：' + error.message;
+                message.className = 'mt-2 text-red-300 leading-snug';
+            }
+        }
+
+        loadAteqCommunicationStatus();
+        setInterval(loadAteqCommunicationStatus, 3000);
 
         let lastScannerSeq = Number(localStorage.getItem('last_scanner_seq') || '0');
         let scannerMarking = false;
@@ -2677,15 +2706,15 @@ HTML_TEMPLATE = '''
                         baudrate: 9600,
                         code,
                         timestamp: ''
-                    }, '，等待点击“启动”或PLC M25.0启动');
-                    loadM26Status();
+                    }, '，等待StepCode 65535→4，或点击“启动”');
+                    loadAteqCommunicationStatus();
                     return true;
                 } else {
                     showNotification('扫码启动失败: ' + (result.message || ''), 'error');
                     return false;
                 }
             } catch (e) {
-                showNotification('扫码PLC确认异常: ' + e.message, 'error');
+                showNotification('扫码确认异常: ' + e.message, 'error');
                 return false;
             } finally {
                 scannerMarking = false;
@@ -2713,7 +2742,7 @@ HTML_TEMPLATE = '''
                         showNotification("扫码成功，正在自动启动: " + data.code, "success");
                         document.getElementById('btn-start')?.click();
                     } else {
-                        showNotification("扫码成功，请点击“启动”或按现场启动按钮(M25.0): " + data.code, "success");
+                        showNotification("扫码成功，等待StepCode 65535→4，或点击“启动”: " + data.code, "success");
                     }
                 }
             } catch (e) {
@@ -2759,8 +2788,7 @@ HTML_TEMPLATE = '''
             }
             await syncTestContext();
             updateScannerStatus({ success: true, connected: true }, '，上一记录已保存，等待下一个二维码');
-            await sendPLCCommand('M26.0', false);
-            loadM26Status();
+            loadAteqCommunicationStatus();
             return true;
         }
 
@@ -2797,7 +2825,7 @@ HTML_TEMPLATE = '''
                 showNotification('扫码成功，正在自动启动: ' + code, 'success');
                 document.getElementById('btn-start')?.click();
             } else {
-                showNotification('扫码成功，请点击“启动”或按现场启动按钮(M25.0): ' + code, 'success');
+                showNotification('扫码成功，等待StepCode 65535→4，或点击“启动”: ' + code, 'success');
             }
         }
 
@@ -3125,14 +3153,10 @@ HTML_TEMPLATE = '''
                 } else {
                     document.getElementById('monitor-status').className = 'w-2 h-2 rounded-full bg-red-400';
                     document.getElementById('device-status').textContent = '连接失败';
-                    // 清除所有指示灯
-                    clearStatusLights();
                 }
             } catch(e) {
                 document.getElementById('monitor-status').className = 'w-2 h-2 rounded-full bg-gray-400';
                 document.getElementById('device-status').textContent = '未连接';
-                // 清除所有指示灯
-                clearStatusLights();
             }
         }
         
@@ -4401,26 +4425,7 @@ HTML_TEMPLATE = '''
         
         // 发送PLC指令
         async function sendPLCCommand(address, value) {
-            try {
-                const response = await fetch('/api/plc/command', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        address: address,
-                        value: value
-                    })
-                });
-                
-                const result = await response.json();
-                if (!result.success) {
-                    showNotification('PLC指令发送失败: ' + result.message, 'error');
-                }
-            } catch(e) {
-                console.error('PLC指令发送异常:', e);
-                showNotification('PLC指令发送异常: ' + e.message, 'error');
-            }
+            return { success: false, message: 'PLC关联已取消' };
         }
         
         // 显示通知
@@ -4984,7 +4989,6 @@ HTML_TEMPLATE = '''
                 <td class="py-2 px-3 border border-gray-600">
                     <div class="flex gap-1">
                         <input type="text" class="label-template-input flex-1 min-w-[180px] px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white text-sm" value="${escapeAttr(labelTemplate)}" placeholder="可选，选择*.btw文件">
-                        <input type="file" class="label-template-file" accept=".btw" style="display:none">
                         <button type="button" class="btn-select-template px-2 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 text-white rounded text-xs whitespace-nowrap">选择</button>
                     </div>
                 </td>
@@ -5001,54 +5005,18 @@ HTML_TEMPLATE = '''
             `;
 
             const templateButton = tr.querySelector('.btn-select-template');
-            const templateFileInput = tr.querySelector('.label-template-file');
-            templateButton.addEventListener('click', function() {
-                templateFileInput.value = '';
-                templateFileInput.click();
-            });
+            const templatePathInput = tr.querySelector('.label-template-input');
 
-            templateFileInput.addEventListener('change', async function() {
-                const file = this.files && this.files[0];
-                if (!file) return;
-                if (!file.name.toLowerCase().endsWith('.btw')) {
-                    showNotification('请选择 .btw 标签模板文件', 'error');
-                    return;
-                }
-
-                const btn = templateButton;
-                const input = tr.querySelector('.label-template-input');
-                const oldText = btn.textContent;
-                btn.disabled = true;
-                btn.textContent = '上传中...';
-                try {
-                    const response = await fetch('/api/upload_label_template?filename=' + encodeURIComponent(file.name), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/octet-stream' },
-                        body: file
-                    });
-                    const result = await response.json();
-                    if (result.success && result.path) {
-                        input.value = result.path;
-                        showNotification('已选择标签模板', 'success');
-                    } else {
-                        showNotification('选择标签模板失败: ' + (result.message || ''), 'error');
-                    }
-                } catch (e) {
-                    showNotification('选择标签模板异常: ' + e.message, 'error');
-                } finally {
-                    btn.textContent = oldText;
-                    btn.disabled = false;
-                }
-            });
-
-            tr.querySelector('.label-template-input').addEventListener('dblclick', async function() {
-                const input = this;
-                input.disabled = true;
+            async function selectTargetLabelTemplate() {
+                const oldText = templateButton.textContent;
+                templateButton.disabled = true;
+                templateButton.textContent = '选择中...';
+                templatePathInput.disabled = true;
                 try {
                     const response = await fetch('/api/select_label_template', { method: 'POST' });
                     const result = await response.json();
                     if (result.success && result.path) {
-                        input.value = result.path;
+                        templatePathInput.value = result.path;
                         showNotification('已选择标签模板', 'success');
                     } else if (!result.cancelled) {
                         showNotification('选择标签模板失败: ' + (result.message || ''), 'error');
@@ -5058,9 +5026,14 @@ HTML_TEMPLATE = '''
                 } catch (e) {
                     showNotification('选择标签模板异常: ' + e.message, 'error');
                 } finally {
-                    input.disabled = false;
+                    templatePathInput.disabled = false;
+                    templateButton.textContent = oldText;
+                    templateButton.disabled = false;
                 }
-            });
+            }
+
+            templateButton.addEventListener('click', selectTargetLabelTemplate);
+            templatePathInput.addEventListener('dblclick', selectTargetLabelTemplate);
             
             // 绑定删除按钮事件
             tr.querySelector('.delete-product').addEventListener('click', function() {
@@ -5320,31 +5293,49 @@ def _start_shared_test_sequence(
     label_template: str = "",
     supplier_code: str = "",
 ):
-    """Single Modbus start path used by the screen button and PLC M25.0."""
+    """Arm the passive StepCode monitor, then pulse the ATEQ start coil."""
     program1 = int(program1 or 0)
     program2 = int(program2 or 0)
     switch_chamber = bool(switch_chamber)
     if program1 <= 0:
         return False, "程序1必须是大于0的有效程序号"
 
-    effective_program2 = program2 if switch_chamber and program2 > 0 else 0
-    return test_executor.execute_async(
-        program1,
-        effective_program2,
-        switch_chamber,
-        test_info={
-            "product_model": product_model,
-            "operator": operator,
-            "qr_code": qr_code,
-            "label_template": label_template,
-            "supplier_code": supplier_code,
-        },
+    if test_executor.running or getattr(test_executor, "hw_running", False):
+        return False, "测试正在执行中，请勿重复启动"
+
+    if not reset_device():
+        return False, "ATEQ复位指令发送失败"
+    time.sleep(0.5)
+    selected, select_message = write_program(program1)
+    if not selected:
+        return False, f"选择程序1失败: {select_message}"
+    selected_program = read_current_program()
+    if selected_program != program1:
+        return False, f"程序1校验失败: 期望{program1}，实际{selected_program}"
+
+    test_executor.set_pending_test_context(
+        product_model=product_model,
+        operator=operator,
+        qr_code=qr_code,
+        label_template=label_template,
+        supplier_code=supplier_code,
+        program1=program1,
+        program2=program2,
+        switch_chamber=switch_chamber,
+        arm_hardware_cycle=True,
     )
+
+    # The cycle detector requires the exact 65535 -> 4 edge. Give its
+    # 300 ms background poll one full interval to observe the idle value.
+    time.sleep(0.4)
+    if not start_test():
+        return False, "ATEQ启动指令发送失败"
+    return True, "ATEQ已启动，等待StepCode由65535变为4"
 
 
 @app.post("/api/scan_qualified")
 def api_scan_qualified(data: dict):
-    """Store a validated scan; M25.0 or the UI button starts through Modbus."""
+    """Store a validated scan and arm passive StepCode cycle detection."""
     started_at = time.perf_counter()
     try:
         if mark_scan_qualified is None:
@@ -5398,12 +5389,10 @@ def api_scan_qualified(data: dict):
             arm_hardware_cycle=True,
         )
         result = mark_scan_qualified(qr_code)
-        _cache_plc_write_status(False, result.get("output", ""))
         logger.info(
-            "Scan accepted with legacy M26.0 disabled: qr=%s, elapsed_ms=%.1f, output=%s",
+            "Scan accepted for StepCode edge detection: qr=%s, elapsed_ms=%.1f",
             qr_code,
             (time.perf_counter() - started_at) * 1000,
-            result.get("output", ""),
         )
 
         return {
@@ -5411,9 +5400,9 @@ def api_scan_qualified(data: dict):
             "qr_code": qr_code,
             "scanner_mode": SCANNER_INPUT_MODE,
             "test_started": False,
-            "plc_signal_ready": True,
-            "start_message": "二维码已录入，等待点击启动或PLC M25.0启动",
-            "trigger_mode": "m25_modbus",
+            "stepcode_armed": True,
+            "start_message": "二维码已录入，等待ATEQ StepCode由65535变为4，或点击启动",
+            "trigger_mode": "stepcode_edge",
             "program1": program1,
             "program2": program2 if switch_chamber and program2 > 0 else 0,
             "switch_chamber": switch_chamber,
@@ -6318,6 +6307,7 @@ def _parse_m26_output(output: str):
 @app.get("/api/plc/control-inputs")
 def api_plc_control_inputs():
     """Read the PLC commands mapped to the screen start/stop buttons."""
+    return {"success": False, "connected": False, "message": "PLC关联已取消"}
     try:
         if read_plc_control_inputs is None:
             return {"success": False, "message": str(LINE_RUNTIME_IMPORT_ERROR)}
@@ -6338,6 +6328,7 @@ def api_plc_control_inputs():
 @app.post("/api/plc/command")
 def api_plc_command(command: PLCCommand):
     """Keep the retired M26.0 hardware-I/O start output safely OFF."""
+    return {"success": False, "connected": False, "message": "PLC关联已取消"}
     started_at = time.perf_counter()
     try:
         ready, message = _line_runtime_ready()
@@ -6378,6 +6369,7 @@ def api_plc_command(command: PLCCommand):
 @app.get("/api/plc/status")
 def api_plc_status():
     """Read M26.0 through Snap7."""
+    return {"success": False, "connected": False, "message": "PLC关联已取消"}
     cached = _cached_plc_status()
     if cached and time.time() - _PLC_STATUS_CACHE.get("updated_at", 0.0) < _PLC_STATUS_TTL_SECONDS:
         return cached

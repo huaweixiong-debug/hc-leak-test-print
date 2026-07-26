@@ -75,8 +75,11 @@ def _send_raw_serial(data_hex, timeout=3):
     for attempt in range(attempts):
         try:
             ser = _get_serial_connection(timeout)
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
+            # This is the only Modbus client and all requests are serialized by
+            # modbus_lock. PurgeComm on the target's legacy COM driver eventually
+            # fails with WinError 31, so a healthy persistent port is not purged
+            # before every request. Invalid/partial responses close the port below,
+            # which also discards any stale bytes before the next request.
             ser.write(data)
             ser.flush()
             time.sleep(0.05)
