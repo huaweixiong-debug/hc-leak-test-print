@@ -9,6 +9,7 @@ import os
 import socket
 import threading
 import time
+from typing import Optional
 
 import serial
 
@@ -225,6 +226,24 @@ def _coil_value(value):
 
 def _register_value(value):
     return int(value) & 0xFFFF
+
+
+def decode_realtime_step_code(response_hex: str) -> Optional[int]:
+    """Decode StepCode from register 4 of the 0x30 realtime block."""
+    try:
+        data = bytes.fromhex(response_hex)
+    except (TypeError, ValueError):
+        return None
+    if (
+        len(data) < 13
+        or data[0] != STATION_ID
+        or data[1] != 0x03
+        or data[2] < 10
+    ):
+        return None
+
+    register_value = (data[11] << 8) | data[12]
+    return ((register_value & 0xFF) << 8) | ((register_value >> 8) & 0xFF)
 
 def read_holding_registers(address, count):
     """读取保持寄存器（线程安全）"""

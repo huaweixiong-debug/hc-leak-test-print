@@ -12,7 +12,13 @@ import threading
 from pathlib import Path
 from database import save_test_record, get_next_daily_serial
 from serial_generator import get_generator
-from modbus_utils import read_holding_registers, send_raw, modbus_crc, STATION_ID
+from modbus_utils import (
+    STATION_ID,
+    decode_realtime_step_code,
+    modbus_crc,
+    read_holding_registers,
+    send_raw,
+)
 from ateq_units import decode_ateq_uint32, get_ateq_unit_abbreviation
 from stepcode_cycle import StepCodeCycleDetector
 from label_data_files import LABEL_DATA_DIR, write_label_data_files
@@ -125,16 +131,8 @@ def write_program(program_number):
 
 def read_step_code():
     """Doc."""
-    cmd = f"{STATION_ID:02X}03{0x20:04X}0001"
-    full_cmd = cmd + modbus_crc(cmd)
-    resp = send_raw(full_cmd)
-    
-    if resp and len(resp) >= 10 and resp.startswith(f"{STATION_ID:02X}03"):
-        data_hex = resp[6:10]
-        step_code = int(data_hex, 16)
-        step_code_swapped = swap_bytes(step_code)
-        return step_code_swapped
-    return None
+    response = read_holding_registers(0x30, 13)
+    return decode_realtime_step_code(response)
 
 def read_test_data():
     """Doc."""

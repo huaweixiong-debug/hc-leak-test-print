@@ -86,6 +86,16 @@ class ModbusRealtimeCacheTests(unittest.TestCase):
         self.assertIsNone(result)
         get_serial.assert_not_called()
 
+    def test_stepcode_is_decoded_from_shared_realtime_block(self):
+        registers = [0, 0, 0, 0, 0x0400] + [0] * 8
+        payload = b"".join(value.to_bytes(2, "big") for value in registers)
+        response = bytes([modbus_utils.STATION_ID, 0x03, len(payload)]) + payload
+
+        self.assertEqual(
+            4,
+            modbus_utils.decode_realtime_step_code(response.hex()),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
